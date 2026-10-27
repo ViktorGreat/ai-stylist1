@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Стилист</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; color: #333; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 20px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        h1 { text-align: center; color: #667eea; margin-bottom: 10px; font-size: 2em; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; background: #f8f9ff; }
+        .upload-area:hover { background: #eef0ff; border-color: #764ba2; }
+        .upload-area.has-image { padding: 10px; }
+        .upload-area img { max-width: 100%; max-height: 300px; border-radius: 10px; }
+        .upload-icon { font-size: 3em; margin-bottom: 10px; }
+        .gender-selector { display: flex; gap: 15px; margin: 20px 0; justify-content: center; }
+        .gender-btn { padding: 12px 30px; border: 2px solid #667eea; background: white; border-radius: 25px; cursor: pointer; font-size: 1em; transition: all 0.3s; }
+        .gender-btn.active { background: #667eea; color: white; }
+        .analyze-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 25px; font-size: 1.1em; cursor: pointer; transition: transform 0.2s; margin-top: 20px; }
+        .analyze-btn:hover { transform: translateY(-2px); }
+        .analyze-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .result { margin-top: 30px; display: none; }
+        .result.show { display: block; }
+        .loading { text-align: center; padding: 40px; display: none; }
+        .loading.show { display: block; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .error-msg { color: #d32f2f; text-align: center; font-weight: bold; background: #ffebee; padding: 15px; border-radius: 8px; }
+        .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .product-card { border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: white; }
+        .product-card img { width: 100%; height: 200px; object-fit: cover; }
+        .product-info { padding: 10px; }
+        .product-name { font-size: 0.85em; color: #333; margin-bottom: 5px; line-height: 1.3; height: 2.6em; overflow: hidden; }
+        .product-price { font-size: 1.1em; font-weight: bold; color: #667eea; margin-bottom: 8px; }
+        .buy-btn { display: block; width: 100%; padding: 8px; background: #cb11ab; color: white; text-align: center; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 0.9em; }
+        .cache-badge { display: inline-block; background: #4caf50; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em; margin-bottom: 10px; }
+/* Кнопки маркетплейсов */
+.marketplace-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.market-btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 20px;
+    text-decoration: none !important;
+    color: white !important;
+    font-weight: bold;
+    font-size: 13px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-align: center;
+    min-width: 60px;
+}
+
+.market-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.wb-btn {
+    background: linear-gradient(135deg, #cb11ab 0%, #a00e8a 100%);
+}
+
+.ozon-btn {
+    background: linear-gradient(135deg, #005bff 0%, #0044cc 100%);
+}
+
+.lamoda-btn {
+    background: linear-gradient(135deg, #000000 0%, #333333 100%);
+}
+
+/* Стили для спойлеров */
+details.trend-details,
+details.shop-details {
+    background: #f8f9ff;
+    border-radius: 12px;
+    padding: 15px;
+    margin: 15px 0;
+    border-left: 4px solid #667eea;
+}
+
+details.trend-details summary,
+details.shop-details summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: #667eea;
+    font-size: 15px;
+}
+
+details.trend-details summary:hover,
+details.shop-details summary:hover {
+    color: #764ba2;
+}
+
+/* Ссылки на бренды */
+.brand-link {
+    color: #764ba2 !important;
+    text-decoration: underline;
+    font-weight: bold;
+}
+
+.brand-link:hover {
+    color: #667eea !important;
+}
+
+/* Строки с вещами */
+.shop-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.shop-label {
+    font-weight: bold;
+    min-width: 150px;
+    color: #333;
+}
+
+/* Заголовки образов */
+h2 {
+    color: #667eea;
+    margin-top: 25px;
+    margin-bottom: 15px;
+    font-size: 1.4em;
+    border-bottom: 2px solid #f0f0f0;
+    padding-bottom: 8px;
+}
+
+/* Списки вещей */
+ul {
+    margin: 10px 0;
+    padding-left: 25px;
+}
+
+ul li {
+    margin-bottom: 5px;
+    line-height: 1.5;
+}
+
+/* Параграфы */
+p {
+    line-height: 1.6;
+    margin-bottom: 8px;
+}    
+</style>
+</head>
+<body>
+    <div class="container">
+        <h1>✨ AI Стилист</h1>
+        <p class="subtitle">Загрузи фото — получи персональные рекомендации по стилю</p>
+        
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+            <div id="uploadContent">
+                <div class="upload-icon">📸</div>
+                <p>Нажми, чтобы выбрать фото</p>
+            </div>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" style="display: none;" onchange="handleFileSelect(event)">
+        
+        <div class="gender-selector">
+            <button class="gender-btn active" data-gender="женщина" onclick="selectGender(this)">👩 Женский</button>
+            <button class="gender-btn" data-gender="мужчина" onclick="selectGender(this)">👨 Мужской</button>
+        </div>
+        
+        <button class="analyze-btn" id="analyzeBtn" onclick="analyzeImage()" disabled>Получить рекомендации</button>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Анализируем твой стиль...</p>
+        </div>
+        
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let selectedGender = 'женщина';
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                selectedFile = file;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const uploadArea = document.getElementById('uploadArea');
+                    const uploadContent = document.getElementById('uploadContent');
+                    uploadArea.classList.add('has-image');
+                    uploadContent.innerHTML = `<img src="${e.target.result}" alt="Выбранное фото">`;
+                };
+                reader.readAsDataURL(file);
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+        
+        function selectGender(btn) {
+            document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedGender = btn.dataset.gender;
+        }
+        
+        async function analyzeImage() {
+            if (!selectedFile) return;
+            
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            
+            loading.classList.add('show');
+            result.classList.remove('show');
+            result.innerHTML = '';
+            analyzeBtn.disabled = true;
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('gender', selectedGender);
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Ошибка сервера: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = '';
+                    if (data.from_cache) {
+                        html += '<span class="cache-badge">⚡ Из кэша (мгновенно)</span><br>';
+                    }
+                    html += data.recommendation;
+                    
+                    if (data.products && data.products.length > 0) {
+                        html += '<h2 style="margin-top: 30px;">🛍 Найденные товары</h2>';
+                        html += '<div class="products-grid">';
+                        data.products.forEach(product => {
+                            const priceStr = product.price > 0 ? `${product.price} ₽` : 'Цена уточняется';
+                            const oldPriceStr = product.old_price > product.price ? `<span style="text-decoration: line-through; color: #999; font-size: 0.9em; margin-left: 5px;">${product.old_price} ₽</span>` : '';
+                            html += `
+                                <div class="product-card">
+                                    <img src="${product.image}" alt="${product.name}" onerror="this.src='https://via.placeholder.com/200x200?text=Нет+фото'">
+                                    <div class="product-info">
+                                        <div class="product-name">${product.name}</div>
+                                        <div class="product-price">${priceStr}${oldPriceStr}</div>
+                                        <a href="${product.link}" target="_blank" class="buy-btn">Купить на WB</a>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+                    }
+                    
+                    result.innerHTML = html;
+                    result.classList.add('show');
+                } else {
+                    result.innerHTML = `<p class="error-msg">Ошибка: ${data.detail || 'Неизвестная ошибка'}</p>`;
+                    result.classList.add('show');
+                }
+            } catch (error) {
+                console.error("Ошибка fetch:", error);
+                result.innerHTML = `<p class="error-msg">Ошибка соединения: ${error.message}.<br><small>Убедитесь, что сервер запущен командой "python main.py"</small></p>`;
+                result.classList.add('show');
+            } finally {
+                loading.classList.remove('show');
+                analyzeBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
