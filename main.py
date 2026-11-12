@@ -76,8 +76,14 @@ def compress_image(image_bytes: bytes, max_size_kb: int = 800) -> bytes:
 def search_wildberries(query: str, limit: int = 3):
     try:
         url = f"https://search.wb.ru/exactmatch/ru/common/v4/search?query={quote(query)}&resultset=catalog&limit={limit + 5}&sort=popular&spp=30"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=10)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        # ЗАЩИТА: если WB вернул HTML (CAPTCHA/блокировку) вместо JSON, мы просто возвращаем пустой список
+        if "application/json" not in response.headers.get("Content-Type", ""):
+            print(f"⚠️ WB заблокировал запрос (вернул HTML). Запрос: {query}")
+            return []
+            
         data = response.json()
         products = []
         for item in data.get("data", {}).get("products", []):
@@ -100,10 +106,9 @@ def search_wildberries(query: str, limit: int = 3):
             })
         return products
     except Exception as e:
-        print(f"❌ Ошибка поиска WB: {e}")
+        print(f"⚠️ Пропуск поиска WB: {e}")
         return []
 
-# === НАДЕЖНЫЙ ПАРСИНГ (вынесен на верхний уровень, без regex с переносами строк) ===
 def extract_queries(text: str, gender: str) -> dict:
     queries = {"top": [], "bottom": [], "shoes": []}
     for line in text.split('\n'):
@@ -121,17 +126,15 @@ def extract_queries(text: str, gender: str) -> dict:
             if val and len(val) > 3:
                 queries["shoes"].append(val)
     
-    # Fallback: если ИИ не вернул запросы — ищем ключевые слова в тексте
     if not queries["top"] and not queries["bottom"] and not queries["shoes"]:
         lower = text.lower()
-        if any(w in lower for w in ['пиджак', 'жакет', 'рубашк', 'блуз', 'футболк', 'свитер', 'толстовк', 'водолазк']):
+        if any(w in lower for w in ['пиджак', 'жакет', 'рубашк', 'блуз', 'футболк', 'свитер', 'толстовк']):
             queries["top"].append(f"{gender}ская верхняя одежда стильная")
         if any(w in lower for w in ['джинс', 'брюк', 'юбк', 'шорт']):
             queries["bottom"].append(f"{gender}ские брюки модные")
-        if any(w in lower for w in ['кроссовк', 'ботинк', 'туфл', 'лодочк', 'кед', 'балетк']):
+        if any(w in lower for w in ['кроссовк', 'ботинк', 'туфл', 'лодочк', 'кед']):
             queries["shoes"].append(f"{gender}ская обувь стильная")
     return queries
-# ================================================================================
 
 @app.get("/")
 async def serve_frontend():
@@ -168,277 +171,78 @@ async def analyze_image(file: UploadFile = File(...), gender: str = Form("жен
             "OpenAI-Project": FOLDER_ID,
         }
         
-        prompt = f"""Ты — элитный AI-стилист с опытом работы в Vogue и Balenciaga. 
-КРИТИЧЕСКИ ВАЖНО: На фото изображен {gender.upper()}. Подбирай СТРОГО только {gender}скую одежду.
-
-ТВОЯ ЗАДАЧА:
-Проанализируй внешность: цветотип, тип фигуры, текущий стиль.
-Предложи 3 модных образа для РАЗНЫХ СИТУАЦИЙ:
-Образ 1: Для работы/офиса
-Образ 2: Для свидания/вечера
-Образ 3: Для выходных/прогулки или спорта
-
-ДЛЯ КАЖДОГО ОБРАЗА УКАЖИ:
-• Конкретные вещи (фасон, крой)
-• Цветовую палитру и материалы
-• Ценовую категорию (Бюджет, Средний, Премиум)
-
-КРИТИЧЕСКИ ВАЖНО: Для каждого образа сгенерируй ТРИ ОТДЕЛЬНЫХ коротких поисковых запроса для маркетплейсов:
-ЗАПРОС_ВЕРХ: для поиска верхней вещи (например: "белая блузка оверсайз женская шелк")
-ЗАПРОС_НИЗ: для поиска нижней вещи (например: "черная юбка миди плиссе женская")
-ЗАПРОС_ОБУВЬ: для поиска обуви и аксессуаров (например: "бежевые лодочки женские кожа")
-Каждый запрос должен быть КОРОТКИМ (3-6 слов) и содержать только ОДНУ ключевую вещь.
-
-ВАЖНО: ВСЕ ТРИ ЗАПРОСА ДОЛЖНЫ БЫТЬ ЗАПОЛНЕНЫ ДЛЯ ВСЕХ ТРЁХ ОБРАЗОВ. НЕ ОСТАВЛЯЙ ПУСТЫМИ!
-
-ОБЯЗАТЕЛЬНО ДОБАВЛЯЙ БЛОК "ПОЧЕМУ ЭТО МОДНО" (скрытый под спойлер):
-Внутри спойлера укажи актуальный тренд и бренд-вдохновитель.
-
-КРИТИЧЕСКИ ВАЖНО: Используй ТОЛЬКО ссылки из этого списка. Не выдумывай URL!
-СПИСОК БРЕНДОВ И ССЫЛОК:
-Zara: https://www.zara.com/ru/
-The Row: https://www.therow.com/
-Karl Lagerfeld: https://www.karl.com/ru_ru/
-Benetton: https://www.benetton.com/ru/
-Prada: https://www.prada.com/ru/ru.html
-Kanzler: https://www.kanzler.ru/
-Henderson: https://henderson.ru/
-Marco Polo: https://marcopolo-brand.ru/
-Nike: https://www.nike.com/ru/
-Adidas: https://www.adidas.com/ru
-Puma: https://ru.puma.com/
-Fila: https://www.fila.ru/
-Jordan: https://www.nike.com/ru/w/jordan-37eef
-
-ФОРМАТ ОТВЕТА:
-Отвечай ТОЛЬКО чистым HTML-кодом. НЕ используй markdown. Начинай сразу с <h2>.
-КРИТИЧЕСКИ ВАЖНО: Для КАЖДОГО из трёх образов ты ДОЛЖЕН полностью повторить блок <details class="shop-details"> со ВСЕМИ ТРЕМЯ строками (Верх, Низ, Обувь). НИКОГДА не пропускай строки и не пиши "не требуется".
-
-<h2>🔍 Анализ внешности</h2>
-<p>Краткое описание: цветотип, тип фигуры, текущий стиль</p>
-
-<h2>👔 Образ 1: Для работы</h2>
-<p><b>Стиль:</b> [описание стиля]</p>
-<ul>
-<li><b>Верх:</b> [конкретная вещь]</li>
-<li><b>Низ:</b> [конкретная вещь]</li>
-<li><b>Обувь:</b> [конкретная вещь]</li>
-<li><b>Аксессуары:</b> [конкретная вещь]</li>
-</ul>
-<p><b>Цвета:</b> [палитра] | <b>Материалы:</b> [материалы] | <b>Бюджет:</b> [категория]</p>
-<details class="trend-details">
-<summary>🔥 Почему это модно? (Тренды и бренды)</summary>
-<div class="trend-content">
-<p><b>Тренд 2025/26:</b> [Название тренда]</p>
-<p><b>Вдохновение:</b> Эстетика бренда <a href="[ССЫЛКА_ИЗ_СПИСКА]" target="_blank" class="brand-link">[Название бренда]</a>. [Краткое пояснение]</p>
-</div>
-</details>
-<details class="shop-details">
-<summary>🛍 Собрать образ по вещам</summary>
-<div class="shop-content">
-<div class="shop-row">
-<span class="shop-label">👕 Верх:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👖 Низ:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👟 Обувь и аксессуары:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-</div>
-</details>
-
-<h2>💕 Образ 2: Для свидания</h2>
-<p><b>Стиль:</b> [описание стиля]</p>
-<ul>
-<li><b>Верх:</b> [конкретная вещь]</li>
-<li><b>Низ:</b> [конкретная вещь]</li>
-<li><b>Обувь:</b> [конкретная вещь]</li>
-<li><b>Аксессуары:</b> [конкретная вещь]</li>
-</ul>
-<p><b>Цвета:</b> [палитра] | <b>Материалы:</b> [материалы] | <b>Бюджет:</b> [категория]</p>
-<details class="trend-details">
-<summary>🔥 Почему это модно? (Тренды и бренды)</summary>
-<div class="trend-content">
-<p><b>Тренд 2025/26:</b> [Название тренда]</p>
-<p><b>Вдохновение:</b> Эстетика бренда <a href="[ССЫЛКА_ИЗ_СПИСКА]" target="_blank" class="brand-link">[Название бренда]</a>. [Краткое пояснение]</p>
-</div>
-</details>
-<details class="shop-details">
-<summary>🛍 Собрать образ по вещам</summary>
-<div class="shop-content">
-<div class="shop-row">
-<span class="shop-label">👕 Верх:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👖 Низ:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👟 Обувь и аксессуары:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-</div>
-</details>
-
-<h2>🌿 Образ 3: Для выходных</h2>
-<p><b>Стиль:</b> [описание стиля]</p>
-<ul>
-<li><b>Верх:</b> [конкретная вещь]</li>
-<li><b>Низ:</b> [конкретная вещь]</li>
-<li><b>Обувь:</b> [конкретная вещь]</li>
-<li><b>Аксессуары:</b> [конкретная вещь]</li>
-</ul>
-<p><b>Цвета:</b> [палитра] | <b>Материалы:</b> [материалы] | <b>Бюджет:</b> [категория]</p>
-<details class="trend-details">
-<summary>🔥 Почему это модно? (Тренды и бренды)</summary>
-<div class="trend-content">
-<p><b>Тренд 2025/26:</b> [Название тренда]</p>
-<p><b>Вдохновение:</b> Эстетика бренда <a href="[ССЫЛКА_ИЗ_СПИСКА]" target="_blank" class="brand-link">[Название бренда]</a>. [Краткое пояснение]</p>
-</div>
-</details>
-<details class="shop-details">
-<summary>🛍 Собрать образ по вещам</summary>
-<div class="shop-content">
-<div class="shop-row">
-<span class="shop-label">👕 Верх:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👖 Низ:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-<div class="shop-row">
-<span class="shop-label">👟 Обувь и аксессуары:</span>
-<div class="marketplace-buttons">
-<a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a>
-<a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a>
-<a href="https://www.lamoda.ru/catalog/?q=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn lamoda-btn">Lamoda</a>
-</div>
-</div>
-</div>
-</details>
-
-<h2>💡 Совет от стилиста</h2>
-<p>Короткий профессиональный совет по деталям, которые сделают образ дорогим.</p>"""
+        prompt = f"""Ты — элитный AI-стилист. На фото изображен {gender.upper()}. Подбирай СТРОГО только {gender}скую одежду.
+Проанализируй внешность и предложи 3 модных образа: 1) Для работы, 2) Для свидания, 3) Для выходных.
+Для каждого образа укажи: фасон, цвета, материалы, бюджет.
+КРИТИЧЕСКИ ВАЖНО: Для каждого образа сгенерируй ТРИ коротких поисковых запроса:
+ЗАПРОС_ВЕРХ: (например: "белая блузка оверсайз женская")
+ЗАПРОС_НИЗ: (например: "черная юбка миди плиссе женская")
+ЗАПРОС_ОБУВЬ: (например: "бежевые лодочки женские кожа")
+Отвечай ТОЛЬКО чистым HTML-кодом. Начинай сразу с <h2>.
+<h2>🔍 Анализ внешности</h2><p>Краткое описание</p>
+<h2>👔 Образ 1: Для работы</h2><p><b>Стиль:</b> [описание]</p><ul><li><b>Верх:</b> [вещь]</li><li><b>Низ:</b> [вещь]</li><li><b>Обувь:</b> [вещь]</li></ul><p><b>Цвета:</b> [палитра] | <b>Бюджет:</b> [категория]</p>
+<details class="trend-details"><summary>🔥 Почему это модно?</summary><div class="trend-content"><p><b>Тренд:</b> [Название]</p><p><b>Вдохновение:</b> Бренд <a href="https://www.zara.com/ru/" target="_blank" class="brand-link">Zara</a>.</p></div></details>
+<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary><div class="shop-content">
+<div class="shop-row"><span class="shop-label">👕 Верх:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👖 Низ:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👟 Обувь:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+</div></details>
+<h2>💕 Образ 2: Для свидания</h2><p><b>Стиль:</b> [описание]</p><ul><li><b>Верх:</b> [вещь]</li><li><b>Низ:</b> [вещь]</li><li><b>Обувь:</b> [вещь]</li></ul><p><b>Цвета:</b> [палитра] | <b>Бюджет:</b> [категория]</p>
+<details class="trend-details"><summary>🔥 Почему это модно?</summary><div class="trend-content"><p><b>Тренд:</b> [Название]</p><p><b>Вдохновение:</b> Бренд <a href="https://www.prada.com/ru/ru.html" target="_blank" class="brand-link">Prada</a>.</p></div></details>
+<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary><div class="shop-content">
+<div class="shop-row"><span class="shop-label">👕 Верх:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👖 Низ:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👟 Обувь:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+</div></details>
+<h2>🌿 Образ 3: Для выходных</h2><p><b>Стиль:</b> [описание]</p><ul><li><b>Верх:</b> [вещь]</li><li><b>Низ:</b> [вещь]</li><li><b>Обувь:</b> [вещь]</li></ul><p><b>Цвета:</b> [палитра] | <b>Бюджет:</b> [категория]</p>
+<details class="trend-details"><summary>🔥 Почему это модно?</summary><div class="trend-content"><p><b>Тренд:</b> [Название]</p><p><b>Вдохновение:</b> Бренд <a href="https://www.nike.com/ru/" target="_blank" class="brand-link">Nike</a>.</p></div></details>
+<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary><div class="shop-content">
+<div class="shop-row"><span class="shop-label">👕 Верх:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👖 Низ:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+<div class="shop-row"><span class="shop-label">👟 Обувь:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
+</div></details>
+<h2>💡 Совет от стилиста</h2><p>Короткий профессиональный совет.</p>"""
 
         payload = {
             "model": f"gpt://{FOLDER_ID}/yandexgpt/latest",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
-                    ]
-                }
-            ],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}]}],
             "temperature": 0.7,
         }
         
         print(f"🚀 Отправляем запрос в YandexGPT (Пол: {gender})...")
-        response = requests.post(url, json=payload, headers=headers, timeout=90)
-        if response.status_code != 200:
-            print(f"❌ Ошибка API: {response.text}")
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
         response.raise_for_status()
         
         result = response.json()
-        ai_text = result["choices"][0]["message"]["content"]
-        
-        ai_text = ai_text.strip()
-        if ai_text.startswith("```html"):
-            ai_text = ai_text[7:]
-        elif ai_text.startswith("```"):
-            ai_text = ai_text[3:]
-        if ai_text.endswith("```"):
-            ai_text = ai_text[:-3]
+        ai_text = result["choices"][0]["message"]["content"].strip()
+        if ai_text.startswith("```html"): ai_text = ai_text[7:]
+        elif ai_text.startswith("```"): ai_text = ai_text[3:]
+        if ai_text.endswith("```"): ai_text = ai_text[:-3]
         ai_text = ai_text.strip()
 
-        # Вызываем надежную функцию парсинга
         queries = extract_queries(ai_text, gender)
         
         all_products = []
-        for q in queries.get("top", [])[:3]:
-            products = search_wildberries(q.strip(), limit=2)
-            all_products.extend(products)
-        for q in queries.get("bottom", [])[:3]:
-            products = search_wildberries(q.strip(), limit=2)
-            all_products.extend(products)
-        for q in queries.get("shoes", [])[:3]:
-            products = search_wildberries(q.strip(), limit=2)
-            all_products.extend(products)
-        
-        all_products = all_products[:9]
+        for q in queries.get("top", [])[:2]:
+            all_products.extend(search_wildberries(q.strip(), limit=1))
+        for q in queries.get("bottom", [])[:2]:
+            all_products.extend(search_wildberries(q.strip(), limit=1))
+        for q in queries.get("shoes", [])[:2]:
+            all_products.extend(search_wildberries(q.strip(), limit=1))
         
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        products_json = json.dumps(all_products, ensure_ascii=False)
-        cursor.execute(
-            "INSERT OR REPLACE INTO cache (image_hash, recommendation, products_json) VALUES (?, ?, ?)",
-            (image_hash, ai_text, products_json)
-        )
-        cursor.execute(
-            "INSERT INTO analyses (image_hash, gender, recommendation, products_json) VALUES (?, ?, ?, ?)",
-            (image_hash, gender, ai_text, products_json)
-        )
+        products_json = json.dumps(all_products[:6], ensure_ascii=False)
+        cursor.execute("INSERT OR REPLACE INTO cache (image_hash, recommendation, products_json) VALUES (?, ?, ?)", (image_hash, ai_text, products_json))
+        cursor.execute("INSERT INTO analyses (image_hash, gender, recommendation, products_json) VALUES (?, ?, ?, ?)", (image_hash, gender, ai_text, products_json))
         conn.commit()
         conn.close()
         
-        return {
-            "status": "success",
-            "recommendation": ai_text,
-            "products": all_products,
-            "from_cache": False
-        }
+        return {"status": "success", "recommendation": ai_text, "products": all_products[:6], "from_cache": False}
         
     except Exception as e:
         print(f"❌ Исключение: {str(e)}")
-        return JSONResponse(status_code=200, content={"status": "error", "detail": str(e)})
-
-@app.get("/history")
-async def get_history():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, gender, created_at FROM analyses ORDER BY created_at DESC LIMIT 10")
-    rows = cursor.fetchall()
-    conn.close()
-    return {"history": [{"id": r[0], "gender": r[1], "date": r[2]} for r in rows]}
+        return JSONResponse(status_code=500, content={"status": "error", "detail": "Ошибка сервера. Попробуйте еще раз."})
 
 if __name__ == "__main__":
     import uvicorn
