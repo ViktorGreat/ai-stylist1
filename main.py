@@ -114,18 +114,12 @@ def extract_queries(text: str, gender: str) -> dict:
     queries = {"top": [], "bottom": [], "shoes": []}
     for line in text.split('\n'):
         line = line.strip()
-        if 'ЗАПРОС_ВЕРХ' in line and ':' in line:
-            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
-            if val and len(val) > 3:
-                queries["top"].append(val)
-        elif 'ЗАПРОС_НИЗ' in line and ':' in line:
-            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
-            if val and len(val) > 3:
-                queries["bottom"].append(val)
-        elif 'ЗАПРОС_ОБУВЬ' in line and ':' in line:
-            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
-            if val and len(val) > 3:
-                queries["shoes"].append(val)
+        for key, marker in (("top", "ЗАПРОС_ВЕРХ"), ("bottom", "ЗАПРОС_НИЗ"), ("shoes", "ЗАПРОС_ОБУВЬ")):
+            if marker in line and ':' in line:
+                val = line.split(':', 1)[1].replace('-->', '').strip().strip('"').strip("'").strip()
+                if val and len(val) > 3:
+                    queries[key].append(val)
+                break
     if not queries["top"]:
         queries["top"] = [unquote(q) for q in re.findall(r'search\.aspx\?search=([^"&]+)', text)][:3]
     if not queries["bottom"]:
@@ -140,34 +134,63 @@ def extract_queries(text: str, gender: str) -> dict:
             queries["shoes"].append(f"{gender}ская обувь стильная")
     return queries
 
-SHOP_BLOCK = """<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary><div class="shop-content">
-<div class="shop-row"><span class="shop-label">👕 Верх:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ВЕРХ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
-<div class="shop-row"><span class="shop-label">👖 Низ:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_НИЗ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
-<div class="shop-row"><span class="shop-label">👟 Обувь и аксессуары:</span><div class="marketplace-buttons"><a href="https://www.wildberries.ru/catalog/0/search.aspx?search=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn wb-btn">WB</a><a href="https://www.ozon.ru/search/?text=[ЗАПРОС_ОБУВЬ]" target="_blank" class="market-btn ozon-btn">Ozon</a></div></div>
-</div></details>"""
+def shop_block(idx: int, gender: str, queries: dict) -> str:
+    def q(kind):
+        arr = queries[kind]
+        if idx < len(arr):
+            return arr[idx]
+        if arr:
+            return arr[0]
+        return {"top": f"{gender}ская верхняя одежда", "bottom": f"{gender}ские брюки", "shoes": f"{gender}ская обувь"}[kind]
+    rows = ""
+    for label, emoji, kind in (("Верх", "👕", "top"), ("Низ", "👖", "bottom"), ("Обувь и аксессуары", "👟", "shoes")):
+        query = q(kind)
+        rows += (f'<div class="shop-row"><span class="shop-label">{emoji} {label}:</span>'
+                 f'<div class="marketplace-buttons">'
+                 f'<a href="https://www.wildberries.ru/catalog/0/search.aspx?search={quote(query)}" target="_blank" class="market-btn wb-btn">WB</a>'
+                 f'<a href="https://www.ozon.ru/search/?text={quote(query)}" target="_blank" class="market-btn ozon-btn">Ozon</a>'
+                 f'</div></div>')
+    return (f'<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary>'
+            f'<div class="shop-content">{rows}</div></details>')
+
+def finalize_html(ai_text: str, gender: str, queries: dict) -> str:
+    ai_text = re.sub(r'<details class="shop-details">.*?</details>', '', ai_text, flags=re.S | re.I)
+    ai_text = re.sub(r'(?m)^ЗАПРОС_(ВЕРХ|НИЗ|ОБУВЬ):.*$', '', ai_text)
+    parts = re.split(r'(?=<h2>)', ai_text)
+    out = []
+    look_idx = 0
+    for part in parts:
+        out.append(part)
+        if re.match(r'<h2>[^<]*Образ', part):
+            out.append(shop_block(look_idx, gender, queries))
+            look_idx += 1
+    return ''.join(out)
 
 def build_look(title: str, emoji: str) -> str:
     return f"""<h2>{emoji} {title}</h2>
 <p><b>Стиль:</b> [описание стиля]</p>
 <ul><li><b>Верх:</b> [конкретная вещь]</li><li><b>Низ:</b> [конкретная вещь]</li><li><b>Обувь:</b> [конкретная вещь]</li><li><b>Аксессуары:</b> [конкретная вещь]</li></ul>
 <p><b>Цвета:</b> [палитра] | <b>Материалы:</b> [материалы] | <b>Бюджет:</b> [категория]</p>
-ЗАПРОС_ВЕРХ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола]
-ЗАПРОС_НИЗ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола]
-ЗАПРОС_ОБУВЬ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола]
-<details class="trend-details"><summary>🔥 Почему это модно? (Тренды и бренды)</summary><div class="trend-content"><p><b>Тренд 2025/26:</b> [Название тренда]</p><p><b>Вдохновение:</b> Эстетика бренда <a href="[ССЫЛКА_ИЗ_СПИСКА]" target="_blank" class="brand-link">[Название бренда]</a>. [Краткое пояснение]</p></div></details>
-{SHOP_BLOCK}"""
+<!-- ЗАПРОС_ВЕРХ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола] -->
+<!-- ЗАПРОС_НИЗ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола] -->
+<!-- ЗАПРОС_ОБУВЬ: [3-5 слов, ОБЯЗАТЕЛЬНО с указанием пола] -->
+<details class="trend-details"><summary>🔥 Почему это модно? (Тренды и бренды)</summary><div class="trend-content"><p><b>Тренд 2025/26:</b> [Название тренда]</p><p><b>Вдохновение:</b> Эстетика бренда <a href="[ССЫЛКА_ИЗ_СПИСКА]" target="_blank" class="brand-link">[Название бренда]</a>. [Краткое пояснение]</p></div></details>"""
 
 def build_prompt(gender: str) -> str:
     return f"""Ты — элитный AI-стилист с опытом работы в Vogue и Balenciaga.
 КРИТИЧЕСКИ ВАЖНО: На фото изображен {gender.upper()}. Подбирай СТРОГО только {gender}скую одежду.
 ТВОЯ ЗАДАЧА:
 Проанализируй внешность: цветотип, тип фигуры, текущий стиль.
-Предложи 3 модных образа для разных ситуаций.
-КРИТИЧЕСКИ ВАЖНО: Для КАЖДОГО из трёх образов ты ОБЯЗАН вывести:
-1) Три строки запросов отдельными строками: ЗАПРОС_ВЕРХ:, ЗАПРОС_НИЗ:, ЗАПРОС_ОБУВЬ: (каждый запрос 3-5 слов, ОДНА вещь, ОБЯЗАТЕЛЬНО с полом: "мужской пиджак", а не "пиджак").
-2) Блок <details class="shop-details"> со ссылками на WB и Ozon, подставив запросы в ссылки вместо квадратных скобок.
-НИКОГДА не пропускай эти блоки ни для одного образа! Всего должно быть 9 строк ЗАПРОС и 3 блока shop-details.
-Бренды для вдохновения (используй ТОЛЬКО эти ссылки): Zara: https://www.zara.com/ru/ | The Row: https://www.therow.com/ | Karl Lagerfeld: https://www.karl.com/ru_ru/ | Benetton: https://www.benetton.com/ru/ | Prada: https://www.prada.com/ru/ru.html | Kanzler: https://www.kanzler.ru/ | Henderson: https://henderson.ru/ | Marco Polo: https://marcopolo-brand.ru/ | Nike: https://www.nike.com/ru/ | Adidas: https://www.adidas.com/ru | Puma: https://ru.puma.com/ | Fila: https://www.fila.ru/
+Предложи 3 модных образа: для работы, для свидания, для выходных.
+Пиши КОМПАКТНО, без пустых строк и лишних пояснений.
+КРИТИЧЕСКИ ВАЖНО ДЛЯ КАЖДОГО ИЗ ТРЁХ ОБРАЗОВ:
+1) Выведи три поисковых запроса ТОЛЬКО в виде HTML-комментариев (по одному в строку):
+<!-- ЗАПРОС_ВЕРХ: ... -->
+<!-- ЗАПРОС_НИЗ: ... -->
+<!-- ЗАПРОС_ОБУВЬ: ... -->
+Каждый запрос: 3-5 слов, ОДНА вещь, ОБЯЗАТЕЛЬНО с полом ("мужской пиджак", а не "пиджак").
+2) НЕ ВЫВОДИ блоки <details class="shop-details"> и НЕ ВЫВОДИ строки ЗАПРОС_ обычным текстом — кнопки магазинов добавит система автоматически.
+Бренды для вдохновения (ТОЛЬКО эти ссылки): Zara: https://www.zara.com/ru/ | The Row: https://www.therow.com/ | Karl Lagerfeld: https://www.karl.com/ru_ru/ | Benetton: https://www.benetton.com/ru/ | Prada: https://www.prada.com/ru/ru.html | Kanzler: https://www.kanzler.ru/ | Henderson: https://henderson.ru/ | Marco Polo: https://marcopolo-brand.ru/ | Nike: https://www.nike.com/ru/ | Adidas: https://www.adidas.com/ru | Puma: https://ru.puma.com/ | Fila: https://www.fila.ru/
 ФОРМАТ ОТВЕТА: чистый HTML без markdown, начинай сразу с <h2>.
 <h2>🔍 Анализ внешности</h2>
 <p>[цветотип, тип фигуры, текущий стиль]</p>
@@ -211,6 +234,8 @@ def do_analysis(job_id: str, image_bytes: bytes, gender: str):
         ai_text = ai_text.strip()
 
         queries = extract_queries(ai_text, gender)
+        ai_text = finalize_html(ai_text, gender, queries)
+
         all_products = []
         for q in queries.get("top", [])[:3]:
             all_products.extend(search_wildberries(q.strip(), limit=2))
