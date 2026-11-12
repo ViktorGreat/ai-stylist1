@@ -359,13 +359,35 @@ Jordan: https://www.nike.com/ru/w/jordan-37eef
         if ai_text.endswith("```"):
             ai_text = ai_text[:-3]
         ai_text = ai_text.strip()
-        
-        queries = {
-            "top": re.findall(r'ЗАПРОС_ВЕРХ[123]?\s*[:=]\s*["\']?([^"\'\n]+)', ai_text),
-            "bottom": re.findall(r'ЗАПРОС_НИЗ[123]?\s*[:=]\s*["\']?([^"\'\n]+)', ai_text),
-            "shoes": re.findall(r'ЗАПРОС_ОБУВЬ[123]?\s*[:=]\s*["\']?([^"\'\n]+)', ai_text)
-        }
-        
+def extract_queries(text, gender):
+    """Надёжный парсинг запросов — без ломаных regex"""
+    queries = {"top": [], "bottom": [], "shoes": []}
+    for line in text.split('\n'):
+        line = line.strip()
+        if 'ЗАПРОС_ВЕРХ' in line and ':' in line:
+            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
+            if val and len(val) > 3:
+                queries["top"].append(val)
+        elif 'ЗАПРОС_НИЗ' in line and ':' in line:
+            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
+            if val and len(val) > 3:
+                queries["bottom"].append(val)
+        elif 'ЗАПРОС_ОБУВЬ' in line and ':' in line:
+            val = line.split(':', 1)[1].strip().strip('"').strip("'").strip()
+            if val and len(val) > 3:
+                queries["shoes"].append(val)
+    # Fallback: если ИИ не вернул запросы — ищем ключевые слова в тексте
+    if not queries["top"] and not queries["bottom"] and not queries["shoes"]:
+        lower = text.lower()
+        if any(w in lower for w in ['пиджак', 'жакет', 'рубашк', 'блуз', 'футболк', 'свитер', 'толстовк', 'водолазк']):
+            queries["top"].append(f"{gender}ская верхняя одежда стильная")
+        if any(w in lower for w in ['джинс', 'брюк', 'юбк', 'шорт']):
+            queries["bottom"].append(f"{gender}ские брюки модные")
+        if any(w in lower for w in ['кроссовк', 'ботинк', 'туфл', 'лодочк', 'кед', 'балетк']):
+            queries["shoes"].append(f"{gender}ская обувь стильная")
+    return queries
+
+queries = extract_queries(ai_text, gender)
         all_products = []
         for q in queries.get("top", [])[:3]:
             products = search_wildberries(q.strip(), limit=2)
