@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#667eea">
     <title>AI Стилист</title>
+    <link rel="manifest" href="/manifest.json">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; padding: 20px; }
@@ -13,7 +14,6 @@
         .header h1 { font-size: 2em; margin-bottom: 10px; }
         .card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .upload-area { border: 3px dashed #6366f1; border-radius: 15px; padding: 40px 20px; text-align: center; cursor: pointer; background: #f8f9ff; transition: 0.3s; }
-        .upload-area:hover { background: #eef0ff; }
         .upload-area.has-image { border-style: solid; padding: 20px; }
         .upload-area img { max-width: 100%; max-height: 300px; border-radius: 10px; }
         .gender-selector { display: flex; gap: 15px; margin: 20px 0; }
@@ -27,7 +27,7 @@
         .result-content { line-height: 1.6; }
         .result-content h2 { color: #6366f1; margin: 20px 0 10px; font-size: 1.3em; border-bottom: 2px solid #f0f0f0; padding-bottom: 5px; }
         .result-content ul { margin: 10px 0 10px 20px; }
-        .market-btn { padding: 8px 16px; border-radius: 8px; text-decoration: none; color: white; font-weight: 600; font-size: 0.9em; display: inline-block; margin-right: 5px; margin-bottom: 5px;}
+        .market-btn { padding: 8px 16px; border-radius: 8px; text-decoration: none; color: white; font-weight: 600; font-size: 0.9em; display: inline-block; margin: 2px; }
         .wb-btn { background: #cb11ab; }
         .ozon-btn { background: #005bff; }
         .error { background: #fee; color: #c33; padding: 15px; border-radius: 10px; margin: 20px 0; }
@@ -43,6 +43,9 @@
         details.shop-details[open] summary { color: #667eea; margin-bottom: 15px; }
         .shop-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; padding: 10px; background: #f8f9ff; border-radius: 8px; }
         .shop-label { font-weight: bold; min-width: 150px; color: #333; }
+        details.trend-details { background: #f8f9ff; border-radius: 12px; padding: 15px; margin: 15px 0; border-left: 4px solid #667eea; }
+        details.trend-details summary { cursor: pointer; font-weight: bold; color: #667eea; }
+        .brand-link { color: #764ba2; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -73,15 +76,15 @@
         const genderBtns = document.querySelectorAll('.gender-btn');
         let selectedFile = null;
         let selectedGender = 'женщина';
-        
+
         uploadArea.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
                 selectedFile = file;
                 const reader = new FileReader();
-                reader.onload = (e) => {
-                    uploadArea.innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
+                reader.onload = (ev) => {
+                    uploadArea.innerHTML = '<img src="' + ev.target.result + '" alt="Preview">';
                     uploadArea.classList.add('has-image');
                     analyzeBtn.disabled = false;
                 };
@@ -102,20 +105,12 @@
                 reader.onload = (e) => {
                     const img = new Image();
                     img.onload = () => {
-                        let { width, height } = img;
-                        if (width > maxWidth) {
-                            height = (height * maxWidth) / width;
-                            width = maxWidth;
-                        }
+                        let w = img.width, h = img.height;
+                        if (w > maxWidth) { h = (h * maxWidth) / w; w = maxWidth; }
                         const canvas = document.createElement('canvas');
-                        canvas.width = width;
-                        canvas.height = height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, width, height);
-                        canvas.toBlob((blob) => {
-                            if (blob) resolve(blob);
-                            else reject(new Error('Сжатие не удалось'));
-                        }, 'image/jpeg', quality);
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Сжатие не удалось')), 'image/jpeg', quality);
                     };
                     img.onerror = reject;
                     img.src = e.target.result;
@@ -125,49 +120,60 @@
             });
         }
 
+        function renderResult(data) {
+            let html = '<div class="card"><div class="result-content">';
+            if (data.from_cache) html += '<span class="cache-badge">⚡ Из кэша (мгновенно)</span><br>';
+            html += data.recommendation + '</div></div>';
+            if (data.products && data.products.length > 0) {
+                html += '<div class="card"><h2>🛍 Найденные товары:</h2>';
+                data.products.forEach(p => {
+                    html += '<div class="product-item"><b>' + p.name + '</b><br><span style="color:#cb11ab; font-weight:bold; font-size:1.1em;">' + p.price + ' ₽</span><br><a href="' + p.link + '" target="_blank" class="market-btn wb-btn" style="margin-top:10px;">Купить на WB</a></div>';
+                });
+                html += '</div>';
+            }
+            resultContainer.innerHTML = html;
+        }
+
+        async function pollResult(jobId) {
+            const msgs = ['Анализируем внешность...', 'Подбираем образы...', 'Ищем товары на WB и Ozon...'];
+            for (let i = 0; i < 75; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const resp = await fetch('/result/' + jobId);
+                    const ct = resp.headers.get('content-type') || '';
+                    if (!ct.includes('application/json')) continue;
+                    const data = await resp.json();
+                    if (data.status === 'processing') {
+                        const p = document.getElementById('statusText');
+                        if (p) p.textContent = msgs[Math.floor(i / 5) % msgs.length];
+                        continue;
+                    }
+                    return data;
+                } catch (e) { continue; }
+            }
+            return { status: 'error', detail: 'Превышено время ожидания, попробуйте еще раз' };
+        }
+
         analyzeBtn.addEventListener('click', async () => {
             if (!selectedFile) return;
             analyzeBtn.disabled = true;
             analyzeBtn.textContent = 'Сжимаем фото...';
-            resultContainer.innerHTML = '<div class="card loading"><div class="spinner"></div><p>Подготавливаем фото...</p></div>';
-            
+            resultContainer.innerHTML = '<div class="card loading"><div class="spinner"></div><p id="statusText">Подготавливаем фото...</p></div>';
             try {
                 const compressed = await compressImage(selectedFile, 1024, 0.75);
                 const formData = new FormData();
                 formData.append('file', compressed, 'photo.jpg');
                 formData.append('gender', selectedGender);
-                
                 analyzeBtn.textContent = 'Анализируем стиль...';
-                
                 const response = await fetch('/analyze', { method: 'POST', body: formData });
-                
-                // ЗАЩИТА: проверяем, что сервер вернул именно JSON, а не HTML-ошибку
-                const contentType = response.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("Сервер вернул некорректный ответ. Попробуйте еще раз.");
+                const ct = response.headers.get('content-type') || '';
+                if (!ct.includes('application/json')) throw new Error('Сервер вернул некорректный ответ, попробуйте еще раз');
+                let data = await response.json();
+                if (data.status === 'processing') {
+                    data = await pollResult(data.job_id);
                 }
-                
-                const data = await response.json();
-                
                 if (data.status === 'success') {
-                    let html = '<div class="card"><div class="result-content">';
-                    if (data.from_cache) {
-                        html += '<span class="cache-badge">⚡ Из кэша (мгновенно)</span><br>';
-                    }
-                    html += data.recommendation + '</div></div>';
-                    
-                    if (data.products && data.products.length > 0) {
-                        html += '<div class="card"><h2>🛍 Найденные товары:</h2>';
-                        data.products.forEach(product => {
-                            let btnClass = product.marketplace === 'WB' ? 'wb-btn' : 'ozon-btn';
-                            let btnText = 'Купить на ' + product.marketplace;
-                            html += '<div class="product-item"><b>' + product.name + '</b><br><span style="color:#cb11ab; font-weight:bold; font-size:1.1em;">' + product.price + ' ₽</span><br><a href="' + product.link + '" target="_blank" class="market-btn ' + btnClass + '" style="margin-top:10px;">' + btnText + '</a></div>';
-                        });
-                        html += '</div>';
-                    } else {
-                        html += '<div class="card"><p style="text-align:center; color:#666;">Товары не найдены (возможно, временная блокировка поиска), но рекомендации выше актуальны!</p></div>';
-                    }
-                    resultContainer.innerHTML = html;
+                    renderResult(data);
                 } else {
                     resultContainer.innerHTML = '<div class="card"><div class="error">❌ Ошибка: ' + (data.detail || 'Неизвестная ошибка') + '</div></div>';
                 }
@@ -178,6 +184,12 @@
                 analyzeBtn.textContent = 'Получить рекомендации';
             }
         });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
+            });
+        }
     </script>
 </body>
 </html>
