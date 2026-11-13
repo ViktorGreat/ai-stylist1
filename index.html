@@ -120,7 +120,7 @@
                 reader.onload = (ev) => {
                     uploadArea.innerHTML = '<img src="' + ev.target.result + '" alt="Preview">';
                     uploadArea.classList.add('has-image');
-                    analyzeBtn.disabled = false;
+                    analyzeBtn.disabled = !privacyConsent.checked;
                 };
                 reader.readAsDataURL(file);
             }
@@ -228,6 +228,9 @@
                 navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
             });
         }
+            privacyConsent.addEventListener('change', () => {
+            analyzeBtn.disabled = !selectedFile || !privacyConsent.checked;
+        });
     </script>
     <footer style="text-align:center; color:rgba(255,255,255,0.75); font-size:0.85em; padding:10px 0 40px;">
         <p><b>О приложении:</b> AI Стилист — ИИ-подбор стиля и одежды по фото с рекомендациями и ссылками на маркетплейсы.</p>
