@@ -142,17 +142,25 @@ def shop_block(idx: int, gender: str, queries: dict) -> str:
         if arr:
             return arr[0]
         return {"top": f"{gender}ская верхняя одежда", "bottom": f"{gender}ские брюки", "shoes": f"{gender}ская обувь"}[kind]
+    stores = [
+        ("WB", "https://www.wildberries.ru/catalog/0/search.aspx?search={q}", "wb-btn"),
+        ("Ozon", "https://www.ozon.ru/search/?text={q}", "ozon-btn"),
+        ("Lamoda", "https://www.lamoda.ru/catalog/?q={q}", "lamoda-btn"),
+        ("Мега", "https://megamarket.ru/search/?query={q}", "mega-btn"),
+        ("Спорт", "https://www.sportmaster.ru/search/?q={q}", "sport-btn"),
+        ("SHEIN", "https://ru.shein.com/pdsearch/{q}/", "shein-btn"),
+    ]
     rows = ""
     for label, emoji, kind in (("Верх", "👕", "top"), ("Низ", "👖", "bottom"), ("Обувь и аксессуары", "👟", "shoes")):
-        query = q(kind)
+        q_enc = quote(q(kind))
+        buttons = "".join(
+            f'<a href="{url.format(q=q_enc)}" target="_blank" class="market-btn {cls}">{name}</a>'
+            for name, url, cls in stores
+        )
         rows += (f'<div class="shop-row"><span class="shop-label">{emoji} {label}:</span>'
-                 f'<div class="marketplace-buttons">'
-                 f'<a href="https://www.wildberries.ru/catalog/0/search.aspx?search={quote(query)}" target="_blank" class="market-btn wb-btn">WB</a>'
-                 f'<a href="https://www.ozon.ru/search/?text={quote(query)}" target="_blank" class="market-btn ozon-btn">Ozon</a>'
-                 f'</div></div>')
+                 f'<div class="marketplace-buttons">{buttons}</div></div>')
     return (f'<details class="shop-details"><summary>🛍 Собрать образ по вещам</summary>'
             f'<div class="shop-content">{rows}</div></details>')
-
 def finalize_html(ai_text: str, gender: str, queries: dict) -> str:
     ai_text = re.sub(r'<details class="shop-details">.*?</details>', '', ai_text, flags=re.S | re.I)
     ai_text = re.sub(r'(?m)^ЗАПРОС_(ВЕРХ|НИЗ|ОБУВЬ):.*$', '', ai_text)
