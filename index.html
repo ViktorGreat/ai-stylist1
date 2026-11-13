@@ -108,6 +108,7 @@
         const resultContainer = document.getElementById('resultContainer');
         const genderBtns = document.querySelectorAll('.gender-btn');
         let selectedFile = null;
+                const privacyConsent = document.getElementById('privacyConsent');
         let selectedGender = 'женщина';
 
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -188,6 +189,10 @@
         }
 
         analyzeBtn.addEventListener('click', async () => {
+                if (!privacyConsent.checked) {
+                alert('Пожалуйста, подтвердите согласие на обработку персональных данных');
+                return;
+            }
             if (!selectedFile) return;
             analyzeBtn.disabled = true;
             analyzeBtn.textContent = 'Сжимаем фото...';
