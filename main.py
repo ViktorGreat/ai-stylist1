@@ -142,13 +142,16 @@ def shop_block(idx: int, gender: str, queries: dict) -> str:
         if arr:
             return arr[0]
         return {"top": f"{gender}ская верхняя одежда", "bottom": f"{gender}ские брюки", "shoes": f"{gender}ская обувь"}[kind]
+    
+    # Lamoda умеет фильтровать по полу через gender_section
+    gender_section = "women" if "женщ" in gender.lower() else "men"
     stores = [
-        ("WB", "https://www.wildberries.ru/catalog/0/search.aspx?search={q}", "wb-btn"),
-        ("Ozon", "https://www.ozon.ru/search/?text={q}", "ozon-btn"),
-        ("Lamoda", "https://www.lamoda.ru/catalog/?q={q}", "lamoda-btn"),
-        ("Мега", "https://megamarket.ru/search/?query={q}", "mega-btn"),
-        ("Спорт", "https://www.sportmaster.ru/search/?q={q}", "sport-btn"),
-        ("SHEIN", "https://ru.shein.com/pdsearch/{q}/", "shein-btn"),
+        ("WB",     "https://www.wildberries.ru/catalog/0/search.aspx?search={q}",                                              "wb-btn"),
+        ("Ozon",   "https://www.ozon.ru/search/?text={q}",                                                                     "ozon-btn"),
+        ("Lamoda", f"https://www.lamoda.ru/catalogsearch/result/?q={{q}}&submit=y&gender_section={gender_section}",            "lamoda-btn"),
+        ("Мега",   "https://megamarket.ru/catalog/?h=2&text={{q}}",                                                            "mega-btn"),
+        ("Спорт",  "https://www.sportmaster.ru/catalog/",                                                                      "sport-btn"),  # fallback — на категорию
+        ("SHEIN",  "https://ru.shein.com/",                                                                                    "shein-btn"),  # fallback — на главную
     ]
     rows = ""
     for label, emoji, kind in (("Верх", "👕", "top"), ("Низ", "👖", "bottom"), ("Обувь и аксессуары", "👟", "shoes")):
@@ -266,7 +269,9 @@ def do_analysis(job_id: str, image_bytes: bytes, gender: str):
     except Exception as e:
         print(f"❌ [job {job_id}] Исключение: {str(e)}")
         JOBS[job_id] = {"status": "error", "detail": str(e)}
-
+@app.get("/privacy.html")
+async def serve_privacy():
+    return FileResponse("privacy.html")
 @app.get("/")
 async def serve_frontend():
     return FileResponse("index.html")
