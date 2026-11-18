@@ -149,7 +149,7 @@ def shop_block(idx: int, gender: str, queries: dict) -> str:
         ("WB",     "https://www.wildberries.ru/catalog/0/search.aspx?search={q}",                                              "wb-btn"),
         ("Ozon",   "https://www.ozon.ru/search/?text={q}",                                                                     "ozon-btn"),
         ("Lamoda", f"https://www.lamoda.ru/catalogsearch/result/?q={{q}}&submit=y&gender_section={gender_section}",            "lamoda-btn"),
-        ("Мега",   "https://megamarket.ru/catalog/?h=2&text={{q}}",                                                            "mega-btn"),
+      ("Sela",   "https://www.sela.ru/search/?query={{q}}",                                                                  "sela-btn"),
         ("Спорт",  "https://www.sportmaster.ru/catalog/",                                                                      "sport-btn"),  # fallback — на категорию
         ("SHEIN",  "https://ru.shein.com/",                                                                                    "shein-btn"),  # fallback — на главную
     ]
